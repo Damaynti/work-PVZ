@@ -1,142 +1,120 @@
 package main
 
 import (
-	"flag"
-	"fmt"
+	"context"
 	"log"
-	"os"
+	"net/http"
+	"sync"
 
-	"example.com/mymodule/internal/model"
+	"example.com/mymodule/internal/pkg/db"
+	"example.com/mymodule/internal/pkg/db/repository/postgres"
+	"example.com/mymodule/internal/server"
 	"example.com/mymodule/internal/service"
-	"example.com/mymodule/internal/storage"
 )
 
-func main() {
-	createCmd := flag.NewFlagSet("create", flag.ExitOnError)
-	fullname := createCmd.String("fullname", "", "fullname for order")
-	orderCode:=createCmd.String("code","","code for order")
+//type Command int
 
-	delCmd := flag.NewFlagSet("del", flag.ExitOnError)
-	orderId := delCmd.Int("id", 0, "id for order")
+const port = ":8000"
+const queryParamKey = "key"
 
-	statusCmd:=flag.NewFlagSet("status",flag.ExitOnError)
-	id := statusCmd.Int("id", 0, "ID заказа")
-	status:=statusCmd.String("status","","status for order")
 
-	searchCmd:=flag.NewFlagSet("search",flag.ExitOnError)
-	search:=searchCmd.String("fullname","","fullname for order")
-	code:=searchCmd.String("code","","code for order")
+var wg sync.WaitGroup
 
-	if len(os.Args) < 2 {
-		fmt.Println("необходимо указать команду")
-		return
-	}
+/*const (
+	CreateOrder Command = iota
+	DeleteOrder
+	ListOrder
+	StatusOrder
+	SearchOrder
+	CreatePVZ
+	DeletePVZ
+	ListPVZ
+	Exit
+)
 
-	command := os.Args[1]
-
-	stor, err := storage.New()
-	if err != nil {
-		fmt.Println("ошибка при создании хранилища:", err)
-		return
-	}
-	serv := service.New(&stor)
-
-	switch command {
-	case "create":
-		err := createCmd.Parse(os.Args[2:])
-		if err != nil {
-			log.Println("ошибка парсинга аргументов:", err)
-			return
-		}
-		if *orderCode == "" {
-			log.Println("не указан код товара")
-			return
-		}
-		if *fullname == "" {
-			log.Println("не указано ФИО")
-			return
-		}
-		err = serv.Create(model.OrderInput{FullName: *fullname,OrderCode: *orderCode})
-		if err != nil {
-			fmt.Println(err)
-			return
-		}
-		fmt.Println("заказ добавлен")
-	case "del":
-		err := delCmd.Parse(os.Args[2:])
-		if err != nil {
-			log.Println("ошибка парсинга аргументов:", err)
-			return
-		}
-		if *orderId == 0 {
-			log.Println("не указано id заказа")
-			return
-		}
-		err = serv.Del(*orderId)
-		if err != nil {
-			fmt.Println(err)
-			return
-		}
-		fmt.Println("заказ удален")
-
-	case "list":
-		list, err := serv.List()
-		if err != nil {
-			fmt.Println(err)
-			return
-		}
-		fmt.Printf("%+v\n", list)
-
-	case "status":
-		err = statusCmd.Parse(os.Args[2:])
-		if err != nil {
-			log.Println("ошибка парсинга аргументов:", err)
-			return
-		}
-		if *id == 0 {
-			log.Println("не указано id заказа")
-			return
-		}
-		if *status == "" {
-			log.Println("не указано статус заказа")
-			return
-		}
-		switch *status{
-		case "выдан":  break
-		case "возврат": break
-		case "брак": break
-		default: 
-			log.Println("статус заказа указан некоректно") 
-			return
-		}
-		err = serv.Status(model.OrderStatus{ID: *id,Status: *status})
-		if err != nil {
-			fmt.Println(err)
-			return
-		}
-		fmt.Println("статус изменен")
-
-	case "search":
-		err := searchCmd.Parse(os.Args[2:])
-		if err != nil {
-			log.Println("ошибка парсинга аргументов:", err)
-			return
-		}
-		if *search == "" {
-			log.Println("не указано ФИО")
-			return
-		}
-		if *code == "" {
-			log.Println("не указан код заказа")
-			return
-		}
-		
-		err=serv.Search(model.OrderInput{FullName: *search, OrderCode: *code})
-		if err != nil {
-			fmt.Println(err)
-			return
-		}
+func parseCommand(input string) Command {
+	switch input {
+	case "create_order":
+		return CreateOrder
+	case "delete_order":
+		return DeleteOrder
+	case "list_order":
+		return ListOrder
+	case "status_order":
+		return StatusOrder
+	case "search_order":
+		return SearchOrder
+	case "create_PVZ":
+		return CreatePVZ
+	case "delete_PVZ":
+		return DeletePVZ
+	case "list_PVZ":
+		return ListPVZ
+	case "exit":
+		return Exit
 	default:
-		fmt.Println("неизвестная команда")
+		return -1
 	}
+}*/
+
+func main() {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	database, err := db.NewOn(ctx)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer database.GetPool(ctx).Close()
+	PVZRepo := service.NewService(postgres.NewPVZ(database))
+	OrderRepo:=service.NewOrder(postgres.NewOrder(database))
+	implemotation := server.Server{Service: PVZRepo,ServiceOrder: OrderRepo}
+	http.Handle("/", server.CreateRouter(ctx,implemotation))
+	if err := http.ListenAndServe(port, nil); err != nil {
+		log.Fatal(err)
+	}
+
+	
+
+	/*wg.Add(1)
+	signal.Signal()
+	scanner := bufio.NewScanner(os.Stdin)
+
+	for scanner.Scan() {
+		list := strings.Split(scanner.Text(), " ")
+		command := parseCommand(list[0])
+		wg.Add(1)
+		switch command {
+		case CreateOrder:
+			//go comand.OrderCreate(ctx,list,&wg)
+
+		case DeleteOrder:
+			//go comand.OrderDelete(ctx,list,&wg)
+
+		case ListOrder:
+			//go comand.OrderList(ctx,&wg)
+
+		case StatusOrder:
+			//go comand.OrderStatus(ctx,list,&wg)
+
+		case SearchOrder:
+			//go comand.OrderSearch(ctx,list,&wg)
+
+		case CreatePVZ:
+			//go comand.PVZCreate(ctx,list,&wg)
+
+		case DeletePVZ:
+			//go comand.PVZDelete(ctx,list,&wg)
+
+		case ListPVZ:
+			//go comand.PVZList(ctx,&wg)
+
+		case Exit:
+			wg.Done()
+			return
+		default:
+			wg.Done()
+			fmt.Println("неизвестная команда")
+		}
+	}
+	wg.Wait()*/
 }
